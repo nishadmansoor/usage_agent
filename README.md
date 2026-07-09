@@ -59,7 +59,6 @@ Claude auth is pluggable via `LLM_BACKEND`:
 usage_agent/
 ├── README.md
 ├── requirements.txt
-├── conftest.py                 # lets pytest import the packages from the root
 ├── .env                        # your config (git-ignored; template in .env.example)
 ├── usage_agent/                # the agent package
 │   ├── agent.py                # UsageAgent tool-use loop
