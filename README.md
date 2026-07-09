@@ -124,18 +124,6 @@ Create a `.env` in the repo root (template under "`.env` example" below):
 \* Required for the primary DAX path. Find the IDs in the model's portal URL:
 `app.powerbi.com/groups/<WORKSPACE_ID>/datasets/<DATASET_ID>/...`.
 
-### `.env` example
-
-```dotenv
-LLM_BACKEND=foundry
-FOUNDRY_RESOURCE=<your-foundry-resource-name>
-POWERBI_WORKSPACE_ID=<workspace-guid>
-POWERBI_DATASET_ID=<dataset-guid>
-FABRIC_SQL_SERVER=<your-endpoint>.datawarehouse.fabric.microsoft.com
-FABRIC_SQL_DATABASE=<lakehouse-or-warehouse-name>
-```
-
----
 
 ## Usage
 
@@ -166,16 +154,14 @@ python -m usage_agent            # no question -> default weekly briefing
 ## Testing
 
 ```powershell
-pip install -r requirements.txt
 python -m pytest            # run from the repo root
 ```
 
-Tests are fully offline — the Claude client and Power BI client are stubbed, so no
-Azure credentials or network are needed.
+Tests are fully offline
 
 ---
 
-## Known limitations & notes
+## Limitations
 
 - **Time-scoped breakdowns:** the raw `usage` fact table's `usage_date` is text and
   isn't a date-related dimension, so hand-written date filters on the raw table may
