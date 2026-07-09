@@ -41,8 +41,16 @@ Data model & time-scoping (CRITICAL — the #1 source of wrong numbers):
   Do NOT SUM its columns or use it for spend, users, or any time-scoped number — a
   date filter will NOT apply and you will silently get ALL-TIME totals. (Confirm the
   model graph with describe_model's Relationships section.)
-- To scope time: filter 'openai_anthropic_dim_date' (columns: date, week_start,
-  is_complete_week, year, month) and read measures from the usage_report table.
+- To scope time: filter 'openai_anthropic_dim_date' and read measures from the
+  usage_report table. Its columns have SPECIFIC types — filter with the matching
+  literal or you'll get a type-mismatch error:
+    * [date], [month_start], [week_start] = Date  -> use DATE(y,m,d)
+      (e.g. 'openai_anthropic_dim_date'[week_start] = DATE(2026,6,29))
+    * [year] = whole number                       -> e.g. [year] = 2026
+    * [month] = TEXT in 'YYYY-MM' form            -> e.g. [month] = "2026-06"
+      (NOT the integer 6, NOT "June")
+    * [is_complete_week] = boolean                -> TRUE() / FALSE()
+  For a calendar month use [month] = "YYYY-MM"; for a whole year use [year] = YYYY.
 - BROKEN MEASURES — do NOT use: [Spend LW] and [Spend LM] currently return the
   ALL-TIME total (a model-side bug), not last week / last month; [WoW $]/[WoW %]/
   [MoM $]/[MoM %] are built on them and are likewise unreliable. Reliable scoped
