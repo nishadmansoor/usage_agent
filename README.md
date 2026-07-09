@@ -56,23 +56,26 @@ Claude auth is pluggable via `LLM_BACKEND`:
 ## Repo layout (standalone)
 
 ```
-usage-agent/
+usage_agent/
 ├── README.md
-├── pyproject.toml
-├── .env                        # your config (git-ignored; template in README)
-├── src/
-│   ├── usage_agent/
-│   │   ├── agent.py            # UsageAgent tool-use loop
-│   │   ├── cli.py / __main__.py
-│   │   ├── config.py           # env-driven Settings
-│   │   ├── llm.py              # get_claude_client (foundry | api_key)
-│   │   ├── logging_config.py
-│   │   ├── clients/powerbi.py  # PowerBIClient.execute_dax (executeQueries)
-│   │   ├── tools/              # dax_tools, sql_tools, validation, registry
-│   │   └── prompts/system_prompt.py
-│   └── shared/                 # azure_auth.py, fabric.py (passwordless Azure)
+├── requirements.txt
+├── conftest.py                 # lets pytest import the packages from the root
+├── .env                        # your config (git-ignored; template in .env.example)
+├── usage_agent/                # the agent package
+│   ├── agent.py                # UsageAgent tool-use loop
+│   ├── cli.py / __main__.py    # `python -m usage_agent`
+│   ├── config.py               # env-driven Settings
+│   ├── llm.py                  # get_claude_client (foundry | api_key)
+│   ├── logging_config.py
+│   ├── clients/powerbi.py      # PowerBIClient.execute_dax (executeQueries)
+│   ├── tools/                  # dax_tools, sql_tools, validation, registry
+│   └── prompts/system_prompt.py
+├── shared/                     # azure_auth.py, fabric.py (passwordless Azure)
 └── tests/                      # offline tests (stubbed Claude + Power BI)
 ```
+
+Run everything from the repo root so the `usage_agent` and `shared` packages
+import (no install step needed beyond the dependencies).
 
 
 ## Prerequisites
@@ -91,7 +94,7 @@ usage-agent/
 
 ```powershell
 # from the repo root
-pip install -e .            # or: pip install -e .[dev] for tests
+pip install -r requirements.txt
 az login
 ```
 
@@ -145,8 +148,6 @@ python -m usage_agent "codex vs claude token usage over the last 30 days"
 python -m usage_agent            # no question -> default weekly briefing
 ```
 
-If you added the console script to PATH, `usage-agent "..."` works too.
-
 **Options**
 - positional `prompt` — your question (quote it).
 - `--log-level` — override `LOG_LEVEL` for one run (e.g. `WARNING` to hide info logs).
@@ -166,8 +167,8 @@ If you added the console script to PATH, `usage-agent "..."` works too.
 ## Testing
 
 ```powershell
-pip install -e .[dev]
-pytest
+pip install -r requirements.txt
+python -m pytest            # run from the repo root
 ```
 
 Tests are fully offline — the Claude client and Power BI client are stubbed, so no
