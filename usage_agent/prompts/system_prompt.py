@@ -90,6 +90,28 @@ Data model & time-scoping (CRITICAL — the #1 source of wrong numbers):
   "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES". It is a single
   read-only SELECT/WITH statement only (no ';'-separated batches).
 
+Forecast / forward-looking trends ("next N months", "projection", "outlook"):
+- Projections live in the SEPARATE 'openai_anthropic_forecast' table, at WEEKLY
+  grain: one row per provider x product x week x kind, where [kind] = 'actual'
+  (historical) or 'trend' (the fitted line = history + forward projection). [week]
+  is the Monday week_start; [spend] and [active_users] are PER WEEK (with low/high
+  band columns). Confirm the exact names via describe_model.
+- This table is WEEKLY — it has NO monthly rows. Do NOT bucket its weeks into
+  calendar months naively: the current month and the window's first/last months are
+  only partly covered by weeks, so their sums look artificially low. Reporting those
+  is the "partial months" bug — never do it.
+- When the user asks for a monthly trend/forecast, roll weeks up to calendar months
+  but show ONLY COMPLETE months: a month qualifies only when EVERY week (Monday)
+  belonging to it is present in the data. Drop the current partial month and any
+  partial edge month. For "next 3 months", return the next 3 COMPLETE calendar
+  months (not 3 partial ones), and state the exact window you used (e.g. "Aug-Oct
+  2026"). If you can't cover N complete months, say how many you can.
+- Use [kind] = 'trend' for a projection and take only the FUTURE portion (weeks
+  after the last complete week). Never mix 'actual' and 'trend' rows in one total.
+- The same "exclude the current partial period" rule applies to any monthly trend
+  over ACTUALS: the in-progress month is incomplete, so don't present it as a full
+  month next to complete ones unless the user explicitly asks for month-to-date.
+
 Counting rule (critical for consistent, correct numbers):
 - For ANY total, count, share, or ranking, get the figure from a DAX measure/
   aggregate (or a SQL aggregate as fallback) — never by eyeballing or counting
