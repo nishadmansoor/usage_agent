@@ -55,9 +55,14 @@ def main(argv: list[str] | None = None) -> int:
     agent = UsageAgent()
     result = agent.run(prompt)
 
-    print("\n" + "=" * 70)
-    print(result.answer)
-    print("=" * 70)
+    if result.posted_to_teams:
+        # Destination was Teams; keep the terminal quiet apart from a short
+        # confirmation. The full answer lives in the Teams card.
+        print("\nPosted to Teams ✓")
+    else:
+        print("\n" + "=" * 70)
+        print(result.answer)
+        print("=" * 70)
     return 0
 
 

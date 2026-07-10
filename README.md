@@ -117,13 +117,14 @@ Create a `.env` in the repo root (template under "`.env` example" below):
 | `POWERBI_TOKEN_SCOPE` | no | Default `https://analysis.windows.net/powerbi/api/.default`. |
 | `FABRIC_SQL_SERVER` | for SQL | Fabric SQL endpoint, e.g. `xxxx.datawarehouse.fabric.microsoft.com`. |
 | `FABRIC_SQL_DATABASE` | for SQL | Lakehouse/warehouse name holding the usage tables. |
+| `TEAMS_TARGET` | no | Delivery target for `post_to_teams`. Only `webhook` is implemented (the default). |
+| `TEAMS_WEBHOOK_URL` | for Teams | Power Automate / Teams Workflows Incoming-Webhook URL. Enables posting; if unset, `post_to_teams` is a no-op. |
 | `EXCLUDE_MANAGED_IDENTITY` | no | `true` (default) keeps `az login` fast locally; set `false` in Azure. |
 | `LOG_LEVEL` | no | Default `INFO`. |
 | `QUERY_ROW_LIMIT` | no | Max rows returned per query. Default `1000`. |
 
 \* Required for the primary DAX path. Find the IDs in the model's portal URL:
 `app.powerbi.com/groups/<WORKSPACE_ID>/datasets/<DATASET_ID>/...`.
-
 
 ## Usage
 
@@ -148,6 +149,22 @@ python -m usage_agent            # no question -> default weekly briefing
 | `describe_model` | Lists the semantic model's tables, columns, and measures (via DAX `INFO.VIEW.*`). Called once up front. |
 | `run_dax_query` | **Primary.** Runs a DAX `EVALUATE` against the model; results match the dashboard's measures. |
 | `run_sql_query` | Read-only SQL (SELECT/WITH only) against the Fabric SQL endpoint, for raw drill-down. |
+| `post_to_teams` | Posts the answer/briefing to Teams as an Adaptive Card via a Workflows webhook. Used only when you explicitly ask to send/share to Teams; no-op with a clear message if unconfigured. |
+
+---
+
+## Microsoft Teams delivery
+
+Ask the agent to *"…and post it to Teams"* and it renders the answer as an Adaptive
+Card and sends it to a channel via a **Power Automate / Teams Workflows** webhook
+(it arrives as the Flow bot). Setup:
+
+1. In Teams/Power Automate, create a flow with the **"Post to a channel when a
+   webhook request is received"** trigger and copy its HTTP URL.
+2. Put it in `.env` as `TEAMS_WEBHOOK_URL` (target defaults to `webhook`).
+
+No Azure AD permission is needed — the webhook URL is the credential. If it isn't
+set, `post_to_teams` simply reports "not configured" and the agent continues.
 
 ---
 

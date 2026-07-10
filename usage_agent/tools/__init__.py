@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from ..teams import post_to_teams
 from .dax_tools import describe_model, run_dax_query
 from .sql_tools import run_sql_query
 
@@ -22,6 +23,7 @@ TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "run_dax_query": run_dax_query,
     "describe_model": describe_model,
     "run_sql_query": run_sql_query,
+    "post_to_teams": post_to_teams,
 }
 
 
@@ -65,6 +67,20 @@ TOOL_SPECS: list[dict] = [
         "differ from the dashboard's measures — prefer run_dax_query when possible.",
         {"sql": {"type": "string", "description": "A single read-only SELECT/WITH statement."}},
         ["sql"],
+    ),
+    _spec(
+        "post_to_teams",
+        "Post the answer or briefing to Microsoft Teams as an Adaptive Card via the "
+        "configured Workflows webhook. Use ONLY when the user explicitly asks to "
+        "send/post/share/notify to Teams or a channel. Pass the full message text "
+        "(Markdown supported). If Teams isn't configured the call is skipped and "
+        "reports that, so it is safe to attempt.",
+        {
+            "text": {"type": "string", "description": "Message body to post (Markdown supported)."},
+            "title": {"type": "string", "description": "Optional card heading; defaults to a timestamped title."},
+            "question": {"type": "string", "description": "The original user question, shown above the answer in the card."},
+        },
+        ["text"],
     ),
 ]
 
