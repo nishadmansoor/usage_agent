@@ -149,23 +149,20 @@ python -m usage_agent            # no question -> default weekly briefing
 | `describe_model` | Lists the semantic model's tables, columns, and measures (via DAX `INFO.VIEW.*`). Called once up front. |
 | `run_dax_query` | **Primary.** Runs a DAX `EVALUATE` against the model; results match the dashboard's measures. |
 | `run_sql_query` | Read-only SQL (SELECT/WITH only) against the Fabric SQL endpoint, for raw drill-down. |
-| `post_to_teams` | Posts the answer/briefing to Teams as an Adaptive Card via a Workflows webhook. Used only when you explicitly ask to send/share to Teams; no-op with a clear message if unconfigured. |
+| `post_to_teams` | Posts the answer/briefing to Teams as an Adaptive Card via a Workflows webhook. Used only when you explicitly ask to send/share to Teams; |
 
 ---
 
 ## Microsoft Teams delivery
 
-Ask the agent to *"…and post it to Teams"* and it renders the answer as an Adaptive
+Ask the agent your question, followed by the phrase *"…and post it to Teams"*. The program renders the answer as an Adaptive
 Card and sends it to a channel via a **Power Automate / Teams Workflows** webhook
 (it arrives as the Flow bot). Setup:
 
-1. In Teams/Power Automate, create a flow with the **"Post to a channel when a
-   webhook request is received"** trigger and copy its HTTP URL.
-2. Put it in `.env` as `TEAMS_WEBHOOK_URL` (target defaults to `webhook`).
+1. In Teams/Power Automate, create a flow with the **"Send a webhook alert to a channel."**
+2. Copy the link that is generated and put it in the .env
 
-No Azure AD permission is needed — the webhook URL is the credential. If it isn't
-set, `post_to_teams` simply reports "not configured" and the agent continues.
-
+No Azure AD permission is needed 
 ---
 
 ## Testing
