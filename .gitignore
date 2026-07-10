@@ -17,6 +17,10 @@ env/
 .env.*
 !.env.example
 
+# Generated one-pager reports
+ai_usage_one_pager_*.docx
+ai_usage_one_pager_*.pdf
+
 # OS / editor
 .DS_Store
 .vscode/

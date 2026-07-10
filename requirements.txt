@@ -8,5 +8,8 @@ pyodbc>=5.1
 python-dotenv>=1.0
 truststore>=0.9
 
+# One-pager Word (.docx) rendering
+python-docx>=1.1
+
 # Dev / tests
 pytest>=8.0

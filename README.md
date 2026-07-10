@@ -68,7 +68,8 @@ usage_agent/
 │   ├── logging_config.py
 │   ├── clients/powerbi.py      # PowerBIClient.execute_dax (executeQueries)
 │   ├── tools/                  # dax_tools, sql_tools, validation, registry
-│   └── prompts/system_prompt.py
+│   ├── reports/one_pager.py    # structured JSON -> branded Word (.docx) briefing
+│   └── prompts/                # system_prompt.py, one_pager.py
 ├── shared/                     # azure_auth.py, fabric.py (passwordless Azure)
 └── tests/                      # offline tests (stubbed Claude + Power BI)
 ```
@@ -138,6 +139,26 @@ python -m usage_agent            # no question -> default weekly briefing
 **Options**
 - positional `prompt` — your question (quote it).
 - `--log-level` — override `LOG_LEVEL` for one run (e.g. `WARNING` to hide info logs).
+- `--one-pager` — render a branded executive briefing to a **Word (.docx)** doc
+  instead of printing to the terminal. With no prompt it produces the weekly Monday
+  briefing: the **previous complete week vs. the week before it**, with the
+  week-over-week (WoW) trend on spend, provider split, and active users. With a
+  prompt it renders the answer to that question as a one-pager. (Intended to run on
+  a Monday, once the prior week's dataset is complete.)
+- `-o` / `--output` — output path for the `--one-pager` doc (default
+  `ai_usage_one_pager_<date>.docx` in the current directory).
+
+```powershell
+python -m usage_agent --one-pager                                   # prev-week vs week-before (WoW) -> .docx
+python -m usage_agent --one-pager "claude spend by department last month"
+python -m usage_agent --one-pager -o reports/weekly.docx
+```
+
+Every one-pager has the **same fixed layout** — an EisnerAmper black/gold masthead,
+a row of KPI tiles, three WoW tables (by provider, by model, and the top 10 users),
+key findings, recommended actions, and a generated-at timestamp — only the data
+changes. The agent returns a structured JSON payload and the renderer
+(`python-docx`) computes every WoW delta and lays it out identically each run.
 
 ---
 
