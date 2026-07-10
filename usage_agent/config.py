@@ -71,6 +71,10 @@ class Settings:
     powerbi_dataset_id: str | None
     powerbi_token_scope: str
 
+    # --- Microsoft Teams notifications (Workflows webhook / Flow bot) ---
+    teams_target: str
+    teams_webhook_url: str | None
+
     # --- Azure auth (shared credential) ---
     exclude_managed_identity: bool
 
@@ -82,6 +86,18 @@ class Settings:
     def powerbi_enabled(self) -> bool:
         """True when a target semantic model (dataset id) is configured."""
         return bool(self.powerbi_dataset_id)
+
+    @property
+    def teams_enabled(self) -> bool:
+        """True when the configured Teams target has what it needs to deliver.
+
+        Only the ``webhook`` target is implemented, so this is true when a
+        Workflows webhook URL is set. The posting layer degrades gracefully
+        (a clear "not configured" message) when it isn't.
+        """
+        if self.teams_target == "webhook":
+            return bool(self.teams_webhook_url)
+        return False
 
 
 @lru_cache(maxsize=1)
@@ -101,6 +117,9 @@ def get_settings() -> Settings:
         powerbi_workspace_id=_get("POWERBI_WORKSPACE_ID"),
         powerbi_dataset_id=_get("POWERBI_DATASET_ID"),
         powerbi_token_scope=_get("POWERBI_TOKEN_SCOPE", _DEFAULT_POWERBI_SCOPE),
+        # Microsoft Teams
+        teams_target=(_get("TEAMS_TARGET", "webhook") or "webhook").strip().lower(),
+        teams_webhook_url=_get("TEAMS_WEBHOOK_URL"),
         # Azure auth
         exclude_managed_identity=_get_bool("EXCLUDE_MANAGED_IDENTITY", True),
         # App

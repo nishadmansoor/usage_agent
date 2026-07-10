@@ -33,6 +33,7 @@ class AgentResult:
     """Outcome of a single agent run."""
 
     answer: str
+    posted_to_teams: bool = False
 
 
 class UsageAgent:
@@ -62,10 +63,15 @@ class UsageAgent:
         self._tool_functions = (
             tool_functions if tool_functions is not None else get_tool_functions()
         )
+        # Per-run state (reset at the start of each run()).
+        self._current_question: str = ""
+        self._posted_to_teams: bool = False
 
     # -- public API --------------------------------------------------------
     def run(self, user_message: str) -> AgentResult:
         """Answer *user_message*, calling tools as needed."""
+        self._current_question = user_message
+        self._posted_to_teams = False
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
 
         for step in range(self._max_steps):
@@ -83,7 +89,7 @@ class UsageAgent:
                     step + 1,
                     response.stop_reason,
                 )
-                return AgentResult(self._text_of(response))
+                return AgentResult(self._text_of(response), self._posted_to_teams)
 
             # Echo Claude's assistant turn (text + tool_use blocks) back verbatim.
             messages.append({"role": "assistant", "content": response.content})
@@ -102,7 +108,10 @@ class UsageAgent:
                     )
             messages.append({"role": "user", "content": tool_results})
 
-        return AgentResult("Stopped: reached the maximum number of tool-calling steps.")
+        return AgentResult(
+            "Stopped: reached the maximum number of tool-calling steps.",
+            self._posted_to_teams,
+        )
 
     # -- internals ---------------------------------------------------------
     @staticmethod
@@ -117,12 +126,23 @@ class UsageAgent:
             return f"Error: unknown tool '{name}'."
 
         args = dict(tool_input or {})
+        # Ensure the Teams card always carries the original question, regardless
+        # of what the model passed, so the posted message is self-contained.
+        if name == "post_to_teams":
+            args.setdefault("question", self._current_question)
+
         logger.info("Tool call: %s(%s)", name, args)
         try:
             result = func(**args)
         except Exception as exc:  # noqa: BLE001 - report tool errors back to the model
             logger.exception("Tool '%s' failed", name)
             return f"Error running '{name}': {exc}"
+
+        # Mark a successful Teams post so the CLI can suppress terminal output.
+        # A successful post returns a status starting with "Posted to"; the
+        # "not configured" / skip paths do not, so they don't set the flag.
+        if name == "post_to_teams" and isinstance(result, str) and result.startswith("Posted to"):
+            self._posted_to_teams = True
 
         return self._serialise(result)
 
