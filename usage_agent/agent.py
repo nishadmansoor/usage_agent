@@ -75,13 +75,19 @@ class UsageAgent:
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
 
         for step in range(self._max_steps):
-            response = self._client.messages.create(
+            # On the final allowed step, force a text answer (tool_choice=none) so a
+            # complex question ends with a best-effort answer from the data gathered
+            # so far, instead of a bare "reached max steps" message.
+            create_kwargs: dict[str, Any] = dict(
                 model=self._model,
                 max_tokens=self._max_tokens,
                 system=self._system_prompt,
                 tools=self._tools,
                 messages=messages,
             )
+            if step == self._max_steps - 1:
+                create_kwargs["tool_choice"] = {"type": "none"}
+            response = self._client.messages.create(**create_kwargs)
 
             if response.stop_reason != "tool_use":
                 logger.info(

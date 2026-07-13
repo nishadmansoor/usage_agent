@@ -92,6 +92,23 @@ def test_serialise_variants():
     assert "x,y" in csv and "1,2" in csv
 
 
+def test_forces_answer_on_last_step():
+    # Two tool turns, then on the final step the model returns a text answer.
+    tools = {"run_dax_query": lambda dax: pd.DataFrame([{"n": 1}])}
+    responses = [
+        _resp("tool_use", [_tool_block("run_dax_query", {"dax": "X"})]),
+        _resp("tool_use", [_tool_block("run_dax_query", {"dax": "Y"})]),
+        _resp("end_turn", [_text_block("Best-effort answer.")]),
+    ]
+    client = FakeClient(responses)
+    result = UsageAgent(
+        max_steps=3, client=client, tool_functions=tools, tool_specs=[], system_prompt="s"
+    ).run("why did it change?")
+    assert result.answer == "Best-effort answer."
+    # The final create call disabled tools so the model had to answer.
+    assert client.calls[-1].get("tool_choice") == {"type": "none"}
+
+
 def test_max_steps_guard():
     # Always asks for a tool -> loop should stop at max_steps.
     tools = {"run_dax_query": lambda dax: pd.DataFrame([{"n": 1}])}

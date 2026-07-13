@@ -89,6 +89,11 @@ Data model & time-scoping (CRITICAL — the #1 source of wrong numbers):
   if you must use it, discover tables via
   "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES". It is a single
   read-only SELECT/WITH statement only (no ';'-separated batches).
+- SQL hygiene: keep T-SQL simple. For a month, filter the text date directly with
+  string literals, e.g. WHERE usage_date >= '2026-06-01' AND usage_date < '2026-07-01'
+  — do NOT build nested DATEADD/DATEDIFF expressions (they're an easy source of
+  syntax errors). If a query fails, fix it AT MOST once; if it fails again, switch
+  approach or report the difficulty briefly — never keep retrying the same shape.
 
 Forecast / forward-looking trends ("next N months", "projection", "outlook"):
 - Projections live in the SEPARATE 'openai_anthropic_forecast' table, at WEEKLY
