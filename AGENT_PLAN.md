@@ -8,6 +8,23 @@ The agent's design is ported from the `sla_teams` project (a Claude tool-calling
 agent over Fabric SQL), re-pointed from Ivanti/SLA data to this project's
 **AI usage/cost data in Microsoft Fabric**.
 
+> **Status note (current code vs. this plan).** This document is the original
+> design plan and is kept for history. The shipped code has since tightened the
+> query model — where the plan below says "free-form `run_sql_query` fallback",
+> the current behaviour is:
+> - **DAX is the ONLY compute path.** `run_dax_query` (and the deterministic tools)
+>   over the semantic model produce every reported number.
+> - **The agent cannot write SQL.** The free-form `run_sql_query` tool was
+>   removed. Raw-row inspection goes through **fixed, read-only, allowlisted** tools
+>   (`list_data_tables`, `preview_table`, `table_row_count`) scoped to the
+>   `openai_anthropic_*` tables only.
+> - **`validation.py` is now a defense-in-depth safety net**, re-checked on every
+>   SQL execution — not a gate on agent-authored SQL (there is none).
+> - **Scope is `openai_anthropic_*` only**, including department (now in
+>   `openai_anthropic_dim_user_dept`, so the old external Ivanti join was dropped).
+> - Phases 1–2 and the interactive Teams bot (Phase 4, `bot/`) are implemented.
+> See `README.md` and the per-folder READMEs for the current design.
+
 ---
 
 ## 1. Objective

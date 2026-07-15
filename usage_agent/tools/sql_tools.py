@@ -1,10 +1,19 @@
-"""Controlled Fabric SQL execution — the drill-down / escape-hatch tool.
+"""Predefined, read-only SQL over the ``openai_anthropic_*`` Fabric tables.
 
-``run_sql_query`` is the single choke point for raw SQL against the Fabric SQL
-endpoint. It enforces the read-only guarantee, binds parameters safely, and caps
-the number of rows returned. The **primary** query path is DAX against the
-semantic model (see ``dax_tools``); this exists for ad-hoc columns the model
-doesn't expose. Ported from sla_teams.
+The agent may **NOT** write SQL. Every query here is a FIXED, parameterised
+statement scoped to an allowlist of ``openai_anthropic_*`` tables — the agent only
+chooses a table (from that allowlist) and a row count, never the SQL text. Nothing
+outside the openai_anthropic tables is reachable (no Ivanti directory, no ad-hoc
+tables, no ``INFORMATION_SCHEMA`` fishing beyond the openai_anthropic prefix).
+
+The PRIMARY analytical path is DAX over the semantic model's measures (see
+``dax_tools`` / ``usage_metrics``). These tools exist only so the agent can INSPECT
+the raw rows/columns the model doesn't surface as measures.
+
+Two guards apply, belt-and-braces: the table **allowlist** (``_resolve``) keeps
+queries inside the ``openai_anthropic_*`` dataset, and ``validation.ensure_read_only``
+(called in ``_read``) re-verifies at execution time that only a single read-only
+statement — no writes, DDL, batches, or ``OPENROWSET``-style escapes — ever runs.
 """
 
 from __future__ import annotations
@@ -17,40 +26,111 @@ from .validation import ensure_read_only
 
 logger = get_logger(__name__)
 
+# The ONLY tables these tools may read. Every entry is an ``openai_anthropic_*``
+# table; the values are the real ``dbo`` table names. A table name that is not in
+# this map is rejected — this is what enforces "only openai_anthropic".
+_ALLOWED_TABLES: dict[str, str] = {
+    "openai_anthropic_usage": "openai_anthropic_usage",
+    "openai_anthropic_usage_report": "openai_anthropic_usage_report",
+    "openai_anthropic_usage_clients": "openai_anthropic_usage_clients",
+    "openai_anthropic_dim_user": "openai_anthropic_dim_user",
+    "openai_anthropic_dim_user_dept": "openai_anthropic_dim_user_dept",
+    "openai_anthropic_dim_product": "openai_anthropic_dim_product",
+    "openai_anthropic_dim_provider": "openai_anthropic_dim_provider",
+    "openai_anthropic_dim_date": "openai_anthropic_dim_date",
+    "openai_anthropic_forecast": "openai_anthropic_forecast",
+}
 
-def run_sql_query(
-    sql: str,
-    params: dict | None = None,
-    *,
-    row_limit: int | None = None,
-) -> pd.DataFrame:
-    """Run a controlled, read-only SQL query and return a pandas DataFrame.
+# Short aliases (e.g. "usage" -> "openai_anthropic_usage") so the agent can use the
+# convenient name; both the full and short forms resolve to the same dbo table.
+_ALIASES: dict[str, str] = {
+    name.removeprefix("openai_anthropic_"): name for name in _ALLOWED_TABLES
+}
 
-    Parameters
-    ----------
-    sql:
-        A single read-only ``SELECT``/``WITH`` statement. Use ``:name`` style
-        placeholders and pass values via *params* — never format values in.
-    params:
-        Mapping of bind-parameter name to value.
-    row_limit:
-        Maximum rows to return. Defaults to ``QUERY_ROW_LIMIT`` from settings;
-        a safety net even if the query forgets a ``TOP``.
-    """
-    ensure_read_only(sql)
-    limit = row_limit or get_settings().query_row_limit
+# The canonical names to advertise to the model (used for the tool-schema enum).
+ALLOWED_TABLE_NAMES: list[str] = sorted(_ALLOWED_TABLES)
 
-    # Lazy imports so importing the tool doesn't require the Fabric/ODBC stack.
-    from sqlalchemy import text
+_MAX_PREVIEW_ROWS = 100
 
+
+def _engine():
+    # Lazy import so importing the tool doesn't require the Fabric/ODBC stack.
     from shared.fabric import get_fabric_engine
 
-    engine = get_fabric_engine()
-    logger.debug("Executing SQL (limit=%d) params=%s", limit, params)
-    with engine.connect() as conn:
-        df = pd.read_sql(text(sql), conn, params=params or {})
+    return get_fabric_engine()
 
-    if len(df) > limit:
-        logger.warning("Query returned %d rows; truncating to %d.", len(df), limit)
-        df = df.head(limit)
+
+def _resolve(table: str) -> str:
+    """Map an agent-supplied name to an allowlisted ``dbo`` table, or raise.
+
+    Accepts the full ``openai_anthropic_*`` name or its short alias (``usage``,
+    ``dim_user_dept``, ...). Anything else is rejected — this is the guard that
+    keeps these tools inside the openai_anthropic dataset.
+    """
+    key = (table or "").strip().lower()
+    if key in _ALLOWED_TABLES:
+        return _ALLOWED_TABLES[key]
+    if key in _ALIASES:
+        return _ALIASES[key]
+    raise ValueError(
+        f"Table {table!r} is not allowed. Choose one of the openai_anthropic "
+        f"tables: {ALLOWED_TABLE_NAMES}"
+    )
+
+
+def _read(sql: str, params: dict | None = None, *, limit: int | None = None) -> pd.DataFrame:
+    """Run a FIXED read-only statement and return a DataFrame (rows capped).
+
+    ``ensure_read_only`` is the defense-in-depth safety net: although every caller
+    here builds a fixed SELECT from the table allowlist, we re-verify at execution
+    time that nothing but a single read-only statement reaches the engine.
+    """
+    from sqlalchemy import text
+
+    ensure_read_only(sql)
+    cap = limit or get_settings().query_row_limit
+    with _engine().connect() as conn:
+        df = pd.read_sql(text(sql), conn, params=params or {})
+    if len(df) > cap:
+        logger.warning("Query returned %d rows; truncating to %d.", len(df), cap)
+        df = df.head(cap)
     return df
+
+
+def list_data_tables() -> pd.DataFrame:
+    """List the openai_anthropic tables and their columns (schema review).
+
+    Fixed query — returns ``TABLE_NAME``, ``COLUMN_NAME``, ``DATA_TYPE`` for every
+    ``openai_anthropic_*`` table so the agent can see what raw columns exist before
+    previewing a table. The agent cannot alter this query.
+    """
+    sql = (
+        "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE "
+        "FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_NAME LIKE 'openai\\_anthropic%' ESCAPE '\\' "
+        "ORDER BY TABLE_NAME, ORDINAL_POSITION"
+    )
+    logger.info("list_data_tables()")
+    return _read(sql)
+
+
+def preview_table(table: str, row_limit: int = 20) -> pd.DataFrame:
+    """Return the first N rows of ONE allowlisted openai_anthropic table.
+
+    Fixed ``SELECT TOP (N) *`` — the agent chooses only the table (validated
+    against the openai_anthropic allowlist) and the row count (1-100). No SQL text
+    comes from the agent.
+    """
+    dbo = _resolve(table)
+    n = max(1, min(int(row_limit or 20), _MAX_PREVIEW_ROWS))
+    sql = f"SELECT TOP ({n}) * FROM dbo.{dbo}"  # dbo from allowlist, n a clamped int
+    logger.info("preview_table(%s, %d)", dbo, n)
+    return _read(sql, limit=n)
+
+
+def table_row_count(table: str) -> pd.DataFrame:
+    """Return the row count of ONE allowlisted openai_anthropic table (fixed query)."""
+    dbo = _resolve(table)
+    sql = f"SELECT COUNT(*) AS row_count FROM dbo.{dbo}"  # dbo from allowlist
+    logger.info("table_row_count(%s)", dbo)
+    return _read(sql, limit=1)

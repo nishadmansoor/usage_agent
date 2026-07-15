@@ -4,10 +4,13 @@
 - ``TOOL_SPECS``     : Anthropic Messages API tool schemas
 - ``get_tool_functions()`` / ``get_tool_specs()`` accessors
 
-Query strategy the schemas steer Claude toward:
-- ``run_dax_query``  — PRIMARY. Answers reconcile with the Power BI dashboard.
+Query strategy the schemas steer Claude toward (openai_anthropic ONLY):
+- ``run_dax_query``  — PRIMARY. DAX over the semantic model's measures; answers
+                       reconcile with the Power BI dashboard.
 - ``describe_model`` — discover real table/column/measure names before querying.
-- ``run_sql_query``  — drill-down fallback for columns the model doesn't expose.
+- ``list_data_tables`` / ``preview_table`` / ``table_row_count`` — FIXED read-only
+                       SQL for inspecting raw openai_anthropic rows. The agent
+                       never writes SQL; it only picks an allowlisted table.
 """
 
 from __future__ import annotations
@@ -16,7 +19,12 @@ from typing import Any, Callable
 
 from ..teams import post_to_teams
 from .dax_tools import describe_model, run_dax_query
-from .sql_tools import run_sql_query
+from .sql_tools import (
+    ALLOWED_TABLE_NAMES,
+    list_data_tables,
+    preview_table,
+    table_row_count,
+)
 from .usage_metrics import department_spend, spend_breakdown, weekly_spend_summary
 
 # name -> callable. The agent dispatches tool calls through this map.
@@ -25,10 +33,13 @@ TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "weekly_spend_summary": weekly_spend_summary,
     "spend_breakdown": spend_breakdown,
     "department_spend": department_spend,
-    # General-purpose query tools.
+    # DAX over the semantic model (the ONLY way to compute numbers).
     "run_dax_query": run_dax_query,
     "describe_model": describe_model,
-    "run_sql_query": run_sql_query,
+    # Predefined, read-only SQL for inspecting raw openai_anthropic rows.
+    "list_data_tables": list_data_tables,
+    "preview_table": preview_table,
+    "table_row_count": table_row_count,
     "post_to_teams": post_to_teams,
 }
 
@@ -91,22 +102,51 @@ TOOL_SPECS: list[dict] = [
     ),
     _spec(
         "run_dax_query",
-        "PRIMARY TOOL. Run a DAX query against the Fabric Power BI semantic model "
-        "and return rows. Prefer this for any usage/cost/adoption question so the "
-        "numbers match the dashboard: reference the model's existing measures "
-        "(e.g. EVALUATE SUMMARIZECOLUMNS('DimUser'[Department], \"Cost\", "
-        "[Total Cost USD])). One EVALUATE statement per call.",
-        {"dax": {"type": "string", "description": "A single DAX EVALUATE query."}},
+        "PRIMARY TOOL and the ONLY way to compute numbers. Run a DAX query against "
+        "the openai_anthropic Power BI semantic model and return rows. Reference the "
+        "model's EXISTING measures (from describe_model) so the numbers match the "
+        "dashboard, e.g. EVALUATE SUMMARIZECOLUMNS("
+        "'openai_anthropic_dim_user_dept'[department], \"Cost\", [Total Spend]). "
+        "One EVALUATE statement per call. Only the openai_anthropic tables/measures "
+        "exist in this model — never reference anything else.",
+        {"dax": {"type": "string", "description": "A single DAX EVALUATE query over the openai_anthropic model."}},
         ["dax"],
     ),
     _spec(
-        "run_sql_query",
-        "Drill-down fallback. Run a read-only SQL (SELECT/WITH) query against the "
-        "Fabric SQL endpoint for raw columns the semantic model doesn't expose. "
-        "T-SQL; prefer TOP N / aggregation. Note: numbers here are raw and may "
-        "differ from the dashboard's measures — prefer run_dax_query when possible.",
-        {"sql": {"type": "string", "description": "A single read-only SELECT/WITH statement."}},
-        ["sql"],
+        "list_data_tables",
+        "Read-only schema review. Lists every openai_anthropic table and its "
+        "columns. Use this to see what raw columns exist before previewing a table. "
+        "Fixed query — you cannot write SQL.",
+        {},
+    ),
+    _spec(
+        "preview_table",
+        "Read-only. Return the first N rows of ONE openai_anthropic table so you can "
+        "inspect the raw data. Fixed SELECT TOP (N) * — you choose only the table "
+        "(from the allowed list) and the row count; you never write SQL. Numbers "
+        "here are raw and may differ from the dashboard — use run_dax_query for "
+        "reported figures.",
+        {
+            "table": {
+                "type": "string",
+                "enum": ALLOWED_TABLE_NAMES,
+                "description": "Which openai_anthropic table to preview.",
+            },
+            "row_limit": {"type": "integer", "description": "Rows to return (1-100, default 20).", "default": 20},
+        },
+        ["table"],
+    ),
+    _spec(
+        "table_row_count",
+        "Read-only. Return the row count of ONE openai_anthropic table. Fixed query.",
+        {
+            "table": {
+                "type": "string",
+                "enum": ALLOWED_TABLE_NAMES,
+                "description": "Which openai_anthropic table to count.",
+            }
+        },
+        ["table"],
     ),
     _spec(
         "post_to_teams",
