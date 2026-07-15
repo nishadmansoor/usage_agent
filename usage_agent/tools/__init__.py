@@ -17,9 +17,15 @@ from typing import Any, Callable
 from ..teams import post_to_teams
 from .dax_tools import describe_model, run_dax_query
 from .sql_tools import run_sql_query
+from .usage_metrics import department_spend, spend_breakdown, weekly_spend_summary
 
 # name -> callable. The agent dispatches tool calls through this map.
 TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
+    # Deterministic metric tools (fixed queries) — PREFER for the questions they cover.
+    "weekly_spend_summary": weekly_spend_summary,
+    "spend_breakdown": spend_breakdown,
+    "department_spend": department_spend,
+    # General-purpose query tools.
     "run_dax_query": run_dax_query,
     "describe_model": describe_model,
     "run_sql_query": run_sql_query,
@@ -41,7 +47,41 @@ def _spec(name: str, description: str, properties: dict, required: list[str] | N
     }
 
 
+_PERIOD_ENUM = ["last_week", "prior_week", "last_month", "this_month", "all_time"]
+
 TOOL_SPECS: list[dict] = [
+    _spec(
+        "weekly_spend_summary",
+        "PREFERRED for weekly spend / week-over-week questions. Returns a FIXED, "
+        "dashboard-reconciling result for the LAST COMPLETE week vs the prior week: "
+        "total spend, WoW $ and %, and active users. Deterministic — use this "
+        "instead of hand-writing DAX for 'last week' / 'WoW' questions.",
+        {},
+    ),
+    _spec(
+        "spend_breakdown",
+        "PREFERRED for 'spend by provider/model/product' questions. Fixed, "
+        "dashboard-reconciling spend + active users grouped by a dimension for a "
+        "period. Use instead of hand-writing DAX.",
+        {
+            "dimension": {"type": "string", "enum": ["provider", "model", "product"], "description": "What to group by."},
+            "period": {"type": "string", "enum": _PERIOD_ENUM, "description": "Time window (default last_week)."},
+            "top_n": {"type": "integer", "description": "Max rows.", "default": 20},
+        },
+        ["dimension"],
+    ),
+    _spec(
+        "department_spend",
+        "PREFERRED for 'spend by team/department' questions. Fixed cross-source "
+        "query (usage joined to the Ivanti directory by email) grouped by "
+        "Department for a period. Raw SQL aggregate (department isn't a dashboard "
+        "measure), but deterministic.",
+        {
+            "period": {"type": "string", "enum": _PERIOD_ENUM, "description": "Time window (default last_week)."},
+            "provider": {"type": "string", "enum": ["anthropic", "openai"], "description": "Optional provider filter."},
+            "top_n": {"type": "integer", "description": "Max departments.", "default": 15},
+        },
+    ),
     _spec(
         "describe_model",
         "List the Power BI semantic model's tables, columns, and MEASURE names. "

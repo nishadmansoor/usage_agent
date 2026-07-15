@@ -1,0 +1,46 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "1f4c2e6a-9b3d-4a8e-bc21-7d0e5f9a3b12",
+  "developer": {
+    "name": "EisnerAmper",
+    "websiteUrl": "https://www.eisneramper.com",
+    "privacyUrl": "https://www.eisneramper.com/privacy",
+    "termsOfUseUrl": "https://www.eisneramper.com/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "AI Usage Agent",
+    "full": "AI Usage & Cost Agent"
+  },
+  "description": {
+    "short": "Ask about AI usage & cost across Claude and Codex.",
+    "full": "Conversational agent over EisnerAmper's AI usage & cost data in Microsoft Fabric. Ask about spend, tokens, model mix, adoption, and week-over-week trends."
+  },
+  "accentColor": "#000000",
+  "bots": [
+    {
+      "botId": "REPLACE_WITH_AZURE_BOT_APP_ID",
+      "scopes": ["personal", "team", "groupChat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal", "team", "groupChat"],
+          "commands": [
+            { "title": "Weekly spend", "description": "How much did we spend last week, with the week-over-week change?" },
+            { "title": "By provider", "description": "Spend by provider last week" },
+            { "title": "By model", "description": "Spend by model last week" },
+            { "title": "By department", "description": "Which department spent the most last month?" }
+          ]
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": []
+}

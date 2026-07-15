@@ -19,3 +19,4 @@ class BotConfig:
     APP_PASSWORD = os.environ.get("MicrosoftAppPassword", "")
     APP_TYPE = os.environ.get("MicrosoftAppType", "MultiTenant")
     APP_TENANTID = os.environ.get("MicrosoftAppTenantId", "")
+    APP_MSI_RESOURCE_id = os.environ.get("MicrosoftAppMSIResourceId", "")
