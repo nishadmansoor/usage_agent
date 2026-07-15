@@ -2,7 +2,6 @@
 
 from datetime import date
 
-import pandas as pd
 import pytest
 
 from usage_agent.tools import usage_metrics as um
@@ -72,30 +71,28 @@ def test_period_and_month_helpers():
         um._norm_period("yesterday")
 
 
-def test_department_spend_all_time_sql(monkeypatch):
-    import usage_agent.tools.sql_tools as st
-
-    captured = {}
-
-    def fake_run_sql_query(sql, params=None, **kwargs):
-        captured["sql"] = sql
-        captured["params"] = params
-        return pd.DataFrame([{"Department": "Engineering", "spend_usd": 1000.0}])
-
-    monkeypatch.setattr(st, "run_sql_query", fake_run_sql_query)
-    df = department_spend("all_time")
-    assert "ivanti_neurons_users" in captured["sql"]
-    assert "GROUP BY inu.Department" in captured["sql"]
-    assert captured["params"] == {}  # all_time -> no date filter
-    assert df.loc[0, "Department"] == "Engineering"
+def test_department_spend_uses_dax_over_dim_user_dept():
+    # Department now comes from the openai_anthropic model (no SQL, no Ivanti).
+    stub = StubPBI([{"'openai_anthropic_dim_user_dept'[department]": "Engineering",
+                     "[Spend]": 1000.0, "[ActiveUsers]": 12}])
+    df = department_spend("all_time", client=stub)
+    q = stub.queries[-1]
+    assert "dim_user_dept'[department]" in q
+    assert "[Total Spend]" in q
+    assert "ivanti" not in q.lower()  # never touches the external directory
+    assert df.loc[0, "department"] == "Engineering"  # column cleaned
 
 
-def test_department_spend_last_month_has_date_range(monkeypatch):
-    import usage_agent.tools.sql_tools as st
+def test_department_spend_last_week_and_provider_filter():
+    stub = StubPBI([{"'openai_anthropic_dim_user_dept'[department]": "Sales",
+                     "[Spend]": 500.0, "[ActiveUsers]": 4}])
+    department_spend("last_week", provider="anthropic", client=stub)
+    q = stub.queries[-1]
+    assert "is_complete_week" in q                       # last_week scoping
+    assert 'dim_provider\'[provider] = "anthropic"' in q  # provider filter
+    assert "ivanti" not in q.lower()
 
-    captured = {}
-    monkeypatch.setattr(st, "run_sql_query", lambda sql, params=None, **k: (captured.update(sql=sql, params=params) or pd.DataFrame()))
-    department_spend("last_month", provider="anthropic")
-    assert "usage_date >= :start" in captured["sql"]
-    assert set(["start", "end", "prov"]).issubset(captured["params"].keys())
-    assert captured["params"]["prov"] == "anthropic"
+
+def test_department_spend_rejects_bad_provider():
+    with pytest.raises(ValueError):
+        department_spend("last_week", provider="marketing", client=StubPBI([]))

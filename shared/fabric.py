@@ -40,16 +40,27 @@ def _require(name: str) -> str:
 
 
 def _build_odbc_str() -> str:
-    """Compose the ODBC connection string from the environment (no secrets)."""
+    """Compose the ODBC connection string from the environment (no secrets).
+
+    Encryption is always on. Certificate validation is on by default; set
+    ``FABRIC_SQL_TRUST_SERVER_CERT=true`` to skip the server-cert NAME/trust check.
+    That is the documented workaround for ODBC Driver 18's strict validation
+    raising ``SSL Provider: The target principal name is incorrect`` against some
+    Fabric warehouse FQDNs — the connection stays encrypted, only the cert-name
+    check is relaxed. Leave it off unless you hit that error.
+    """
     server = _require("FABRIC_SQL_SERVER")
     database = _require("FABRIC_SQL_DATABASE")
     port = os.getenv("FABRIC_SQL_PORT", "1433")
     driver = os.getenv("ODBC_DRIVER", "ODBC Driver 18 for SQL Server")
+    trust = os.getenv("FABRIC_SQL_TRUST_SERVER_CERT", "false").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
     return (
         f"Driver={{{driver}}};"
         f"Server={server},{port};"
         f"Database={database};"
-        "Encrypt=yes;TrustServerCertificate=no;"
+        f"Encrypt=yes;TrustServerCertificate={'yes' if trust else 'no'};"
     )
 
 

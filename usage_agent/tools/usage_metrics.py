@@ -104,21 +104,6 @@ def _period_dax(period: str) -> tuple[str, str]:
     return "", ""  # all_time
 
 
-def _week_bounds(pbi: PowerBIClient, *, prior: bool = False) -> tuple[str, str]:
-    """Return ('YYYY-MM-DD','YYYY-MM-DD') start/exclusive-end of the last complete
-    (or prior) week, from the model, so SQL aligns with the DAX tools."""
-    offset = 7 if prior else 0
-    dax = (
-        f"DEFINE VAR LW = CALCULATE(MAX({_DATE}[week_start]), "
-        f"FILTER(ALL({_DATE}), {_DATE}[is_complete_week] = TRUE())) - {offset} "
-        f'EVALUATE ROW("s", LW, "e", LW + 7)'
-    )
-    r = pbi.execute_dax(dax)[0]
-    start = str(r.get("[s]"))[:10]
-    end = str(r.get("[e]"))[:10]
-    return start, end
-
-
 # -- tools -----------------------------------------------------------------
 def weekly_spend_summary(*, client: PowerBIClient | None = None) -> pd.DataFrame:
     """Last complete week vs the prior week: total spend, WoW $/%, active users.
@@ -185,6 +170,10 @@ ORDER BY [Spend] DESC
     return _df(pbi.execute_dax(dax))
 
 
+_DEPT = "'openai_anthropic_dim_user_dept'[department]"
+_PROVIDER = "'openai_anthropic_dim_provider'[provider]"
+
+
 def department_spend(
     period: str = "last_week",
     *,
@@ -192,41 +181,38 @@ def department_spend(
     top_n: int = 15,
     client: PowerBIClient | None = None,
 ) -> pd.DataFrame:
-    """Spend by department for *period* (cross-source SQL: usage -> dim_user ->
-    Ivanti directory, joined by email). Department isn't in the semantic model, so
-    this is a raw SQL aggregate (broadly consistent, not a dashboard measure)."""
-    from .sql_tools import run_sql_query
+    """Spend + active users by department for *period* — entirely within the
+    openai_anthropic semantic model.
 
-    p = _norm_period(period)
-    start = end = None
-    if p in ("last_week", "prior_week"):
-        pbi = client or get_powerbi_client()
-        start, end = _week_bounds(pbi, prior=(p == "prior_week"))
-    elif p == "last_month":
-        start, end = _month_range(_prev_month())
-    elif p == "this_month":
-        start, end = _month_range(_this_month())
-
-    where = ["inu.Department IS NOT NULL", "inu.Department <> ''"]
-    params: dict = {}
-    if start:
-        where.append("u.usage_date >= :start AND u.usage_date < :end")
-        params["start"], params["end"] = start, end
-    if provider:
-        where.append("u.provider = :prov")
-        params["prov"] = provider.lower()
-
-    sql = f"""
-        SELECT TOP ({int(top_n)})
-            inu.Department, SUM(u.cost_usd) AS spend_usd
-        FROM dbo.openai_anthropic_usage u
-        JOIN dbo.openai_anthropic_dim_user du
-            ON u.provider = du.provider AND u.user_id = du.user_id
-        JOIN dbo.ivanti_neurons_users inu
-            ON LOWER(du.email) = LOWER(inu.WorkEmail)
-        WHERE {' AND '.join(where)}
-        GROUP BY inu.Department
-        ORDER BY spend_usd DESC
+    Department lives in 'openai_anthropic_dim_user_dept' (related to the fact by
+    user_key), so this is a DAX aggregate over [Total Spend] / [Active Users] and
+    reconciles with the dashboard. No SQL, no external directory.
     """
+    p = _norm_period(period)
+    if provider and provider.lower() not in ("anthropic", "openai"):
+        raise ValueError("provider must be 'anthropic' or 'openai'")
+    define, filt = _period_dax(p)
+    prov_filter = (
+        f'FILTER(ALL({_PROVIDER}), {_PROVIDER} = "{provider.lower()}"),'
+        if provider
+        else ""
+    )
+    pbi = client or get_powerbi_client()
+    dax = f"""
+{define}
+EVALUATE
+    TOPN({int(top_n)},
+        FILTER(
+            SUMMARIZECOLUMNS(
+                {_DEPT},
+                {filt}
+                {prov_filter}
+                "Spend", [Total Spend],
+                "ActiveUsers", [Active Users]
+            ),
+            NOT ISBLANK({_DEPT}) && [Spend] > 0),
+        [Spend], DESC)
+ORDER BY [Spend] DESC
+"""
     logger.info("department_spend(period=%s, provider=%s)", p, provider)
-    return run_sql_query(sql, params)
+    return _df(pbi.execute_dax(dax))

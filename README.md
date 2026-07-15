@@ -4,89 +4,123 @@ A conversational Claude agent that answers natural-language questions about your
 organization's **AI usage & cost** (Anthropic Claude + OpenAI Codex) held in
 Microsoft Fabric.
 
-It queries your **Power BI semantic model** with DAX — so its numbers reconcile
-with the dashboard's own measures — and falls back to raw **Fabric SQL** for
-drill-downs the model doesn't expose. Authentication is **passwordless** (your
-Azure identity via `az login` / managed identity); no API keys to manage.
+It works **only** with the `openai_anthropic_*` dataset and computes every number
+with **DAX against your Power BI semantic model** — so its figures reconcile with
+the dashboard's own measures. It **never writes SQL**: for raw-row inspection it
+uses a small set of fixed, read-only, allowlisted SQL tools. Authentication is
+**passwordless** (your Azure identity via `az login` / managed identity); no API
+keys to manage.
 
 ```
 You ─▶ usage-agent "which department spends the most on Claude?"
           │
           ▼
-    Claude (via Azure Foundry)  ──tool calls──▶  describe_model   (learn measures)
-                                                  run_dax_query    (PRIMARY — matches dashboard)
-                                                  run_sql_query    (drill-down fallback)
+    Claude (Foundry or API key)
+          │  tool calls
+          ├─▶ describe_model            learn the real tables/columns/measures (once)
+          ├─▶ weekly_spend_summary /    deterministic, dashboard-reconciling shortcuts
+          │   spend_breakdown /         for the common questions
+          │   department_spend
+          ├─▶ run_dax_query             PRIMARY — the ONLY way numbers are computed
+          └─▶ list_data_tables /        fixed, read-only inspection of raw
+              preview_table /           openai_anthropic rows (agent never writes SQL)
+              table_row_count
           │
           ▼
-    grounded answer / briefing
+    grounded answer / briefing  (optionally posted to Teams)
 ```
+
+---
+
+## What it can and can't do
+
+- **Compute** — only via `run_dax_query` (or the deterministic tools, which are
+  fixed DAX). Every reported figure comes from the semantic model's measures.
+- **Inspect raw rows** — only via `list_data_tables` / `preview_table` /
+  `table_row_count`, which run **fixed** read-only SELECTs against an **allowlist**
+  of `openai_anthropic_*` tables. The agent cannot compose SQL.
+- **Scope** — the model contains only `openai_anthropic_*` tables (plus a hidden
+  `_Measures` table that holds measures). The agent never touches anything else.
 
 ---
 
 ## Features
 
 - **Ask in plain English** — spend, tokens, model mix, adoption, week-over-week trends.
-- **Reconciles with the dashboard** — prefers the semantic model's measures over
-  re-derived numbers.
-- **Cross-source drill-down** — can join usage to other Fabric tables (e.g. an HR
-  users table for per-department spend) via the SQL fallback.
+- **Reconciles with the dashboard** — all numbers come from the model's measures.
+- **No self-written SQL** — the agent computes with DAX and only *inspects* raw data
+  through fixed, allowlisted, read-only tools, backed by a validation safety net.
 - **Passwordless** — one Azure identity, three token scopes (Foundry / Power BI /
   Fabric SQL). No secrets in code.
 - **Two output modes** — concise one-liners by default; a full four-section
   briefing when you ask for a "report"/"briefing"/"breakdown".
+- **Delivery** — CLI, a branded Word (`.docx`) one-pager, an outbound Teams card, or
+  an interactive Teams bot (`bot/`).
 
 ---
 
 ## How it works
 
-1. `UsageAgent.run()` drives a standard Anthropic tool-use loop.
+1. `UsageAgent.run()` drives a standard Anthropic tool-use loop (`usage_agent/agent.py`).
 2. Claude calls `describe_model` once to learn the real tables/columns/measures.
-3. For any quantitative question it writes DAX (`run_dax_query`) against the
-   semantic model, referencing existing measures.
-4. `run_sql_query` is a last-resort drill-down against the Fabric SQL endpoint.
-5. Results (DataFrames) are serialised back to Claude, which composes the answer.
+3. For the common questions it uses a **deterministic tool** (`weekly_spend_summary`,
+   `spend_breakdown`, `department_spend`) — fixed DAX that returns the same
+   dashboard-reconciling answer every run.
+4. For anything else it writes DAX with `run_dax_query`, referencing existing
+   measures. This is the **only** path that produces reported numbers.
+5. To understand a raw column it can `list_data_tables` then `preview_table` — fixed
+   read-only SQL over the openai_anthropic allowlist; those raw numbers are for
+   inspection only and are never reported as figures.
+6. Results (DataFrames) are serialised back to Claude, which composes the answer.
 
 Claude auth is pluggable via `LLM_BACKEND`:
-- `foundry` (recommended here) — `AnthropicFoundry` + your Azure AD token.
-- `api_key` — a direct `ANTHROPIC_API_KEY` (optionally via `ANTHROPIC_BASE_URL`
-  for an org gateway).
+- `foundry` — `AnthropicFoundry` + your Azure AD token (single-identity story).
+- `api_key` (default) — a direct `ANTHROPIC_API_KEY` (optionally via
+  `ANTHROPIC_BASE_URL` for an org gateway).
 
 ---
 
-## Repo layout (standalone)
+## Repo layout
 
 ```
-usage_agent/
-├── README.md
+usage_agent/                       # repo root
+├── README.md                      # this file
+├── AGENT_PLAN.md                  # original design/implementation plan (history)
 ├── requirements.txt
-├── .env                        # your config (git-ignored; template in .env.example)
-├── usage_agent/                # the agent package
-│   ├── agent.py                # UsageAgent tool-use loop
-│   ├── cli.py / __main__.py    # `python -m usage_agent`
-│   ├── config.py               # env-driven Settings
-│   ├── llm.py                  # get_claude_client (foundry | api_key)
+├── .env                           # your config (git-ignored; template in .env.example)
+├── usage_agent/                   # the agent package  (see usage_agent/README.md)
+│   ├── agent.py                   # UsageAgent tool-use loop
+│   ├── cli.py / __main__.py       # `python -m usage_agent`
+│   ├── config.py                  # env-driven Settings
+│   ├── llm.py                     # get_claude_client (foundry | api_key)
+│   ├── teams.py                   # outbound Adaptive Card via Workflows webhook
 │   ├── logging_config.py
-│   ├── clients/powerbi.py      # PowerBIClient.execute_dax (executeQueries)
-│   ├── tools/                  # dax_tools, sql_tools, validation, registry
-│   ├── reports/one_pager.py    # structured JSON -> branded Word (.docx) briefing
-│   └── prompts/                # system_prompt.py, one_pager.py
-├── shared/                     # azure_auth.py, fabric.py (passwordless Azure)
-└── tests/                      # offline tests (stubbed Claude + Power BI)
+│   ├── clients/                   # PowerBIClient  (see clients/README.md)
+│   ├── tools/                     # the agent's tools  (see tools/README.md)
+│   ├── prompts/                   # system + one-pager prompts (prompts/README.md)
+│   └── reports/                   # JSON -> branded Word (.docx)  (reports/README.md)
+├── shared/                        # passwordless Azure auth + Fabric SQL (shared/README.md)
+├── bot/                           # interactive Teams bot  (bot/README.md)
+├── teams_app/                     # Teams app manifest for the bot
+└── tests/                         # offline tests (stubbed Claude + Power BI)
 ```
 
-Run everything from the repo root so the `usage_agent` and `shared` packages
-import (no install step needed beyond the dependencies).
+Run everything from the repo root so the `usage_agent`, `shared`, and `bot`
+packages import (no install step beyond the dependencies).
 
+---
 
 ## Prerequisites
 
 - **Python 3.11+**
-- **Microsoft ODBC Driver 18 for SQL Server** (for the SQL drill-down tool)
+- **Microsoft ODBC Driver 18 for SQL Server** (for the read-only SQL inspection tools)
 - **Azure CLI**, logged in: `az login`
 - Access, granted to your identity:
-  - **Azure AI Foundry** resource with Claude deployed (for `LLM_BACKEND=foundry`)
-  - **Power BI semantic model**: *Build* permission + *XMLA read* enabled on the dataset
-  - **Fabric SQL** endpoint read access (optional; only for the SQL fallback)
+  - **Claude** — an Azure AI Foundry deployment (`LLM_BACKEND=foundry`) or an
+    `ANTHROPIC_API_KEY` (`LLM_BACKEND=api_key`).
+  - **Power BI semantic model** — *Build* permission + *XMLA read* on the dataset.
+  - **Fabric SQL** endpoint — **read-only** access to the `openai_anthropic_*`
+    tables (optional; only for the inspection tools). Grant SELECT only.
 
 ---
 
@@ -102,11 +136,11 @@ az login
 
 ## Configuration
 
-Create a `.env` in the repo root (template under "`.env` example" below):
+Create a `.env` in the repo root (see `.env.example`):
 
 | Variable | Required | Description |
 |---|---|---|
-| `LLM_BACKEND` | no | `foundry` (recommended) or `api_key`. Default `api_key`. |
+| `LLM_BACKEND` | no | `api_key` (default) or `foundry`. |
 | `FOUNDRY_RESOURCE` | if foundry | Azure AI Foundry resource name (Claude deployed there). |
 | `FOUNDRY_TOKEN_SCOPE` | no | Default `https://cognitiveservices.azure.com/.default`. |
 | `ANTHROPIC_API_KEY` | if api_key | Standard Anthropic key. |
@@ -117,19 +151,22 @@ Create a `.env` in the repo root (template under "`.env` example" below):
 | `POWERBI_DATASET_ID` | yes* | Semantic model (dataset) GUID. |
 | `POWERBI_TOKEN_SCOPE` | no | Default `https://analysis.windows.net/powerbi/api/.default`. |
 | `FABRIC_SQL_SERVER` | for SQL | Fabric SQL endpoint, e.g. `xxxx.datawarehouse.fabric.microsoft.com`. |
-| `FABRIC_SQL_DATABASE` | for SQL | Lakehouse/warehouse name holding the usage tables. |
-| `TEAMS_TARGET` | no | Delivery target for `post_to_teams`. Only `webhook` is implemented (the default). |
-| `TEAMS_WEBHOOK_URL` | for Teams | Power Automate / Teams Workflows Incoming-Webhook URL. Enables posting; if unset, `post_to_teams` is a no-op. |
+| `FABRIC_SQL_DATABASE` | for SQL | Lakehouse/warehouse holding the `openai_anthropic_*` tables. |
+| `FABRIC_SQL_TRUST_SERVER_CERT` | no | `false` (default). Set `true` only if the SQL connection fails with `SSL Provider: The target principal name is incorrect` — relaxes ODBC Driver 18's cert-**name** check against some Fabric FQDNs. Connection stays encrypted; skips name validation. |
+| `TEAMS_TARGET` | no | Delivery target for `post_to_teams`. Only `webhook` is implemented (default). |
+| `TEAMS_WEBHOOK_URL` | for Teams | Power Automate / Teams Workflows Incoming-Webhook URL. If unset, `post_to_teams` is a no-op. |
 | `EXCLUDE_MANAGED_IDENTITY` | no | `true` (default) keeps `az login` fast locally; set `false` in Azure. |
 | `LOG_LEVEL` | no | Default `INFO`. |
 | `QUERY_ROW_LIMIT` | no | Max rows returned per query. Default `1000`. |
 
-\* Required for the primary DAX path. Find the IDs in the model's portal URL:
-`app.powerbi.com/groups/<WORKSPACE_ID>/datasets/<DATASET_ID>/...`.
+\* Required for the DAX path (the only compute path). Find the IDs in the model's
+portal URL: `app.powerbi.com/groups/<WORKSPACE_ID>/datasets/<DATASET_ID>/...`.
+
+---
 
 ## Usage
 
-Run from the repo root (so `.env` is loaded):
+Run from the repo root (so `.env` loads):
 
 ```powershell
 python -m usage_agent "which department spends the most on Claude?"
@@ -139,83 +176,100 @@ python -m usage_agent            # no question -> default weekly briefing
 
 **Options**
 - positional `prompt` — your question (quote it).
-- `--log-level` — override `LOG_LEVEL` for one run (e.g. `WARNING` to hide info logs).
-- `--one-pager` — render a branded executive briefing to a **Word (.docx)** doc
-  instead of printing to the terminal. With no prompt it produces the weekly Monday
-  briefing: the **previous complete week vs. the week before it**, with the
-  week-over-week (WoW) trend on spend, provider split, and active users. With a
-  prompt it renders the answer to that question as a one-pager. (Intended to run on
-  a Monday, once the prior week's dataset is complete.)
-- `-o` / `--output` — output path for the `--one-pager` doc (default
-  `ai_usage_one_pager_<date>.docx` in the current directory).
+- `--log-level` — override `LOG_LEVEL` for one run.
+- `--one-pager` — render a branded executive briefing to a **Word (.docx)** doc.
+  With no prompt it produces the Monday briefing: **previous complete week vs. the
+  week before it** (WoW trend on spend, provider split, active users).
+- `-o` / `--output` — output path for the `--one-pager` doc.
 
 ```powershell
-python -m usage_agent --one-pager                                   # prev-week vs week-before (WoW) -> .docx
+python -m usage_agent --one-pager
 python -m usage_agent --one-pager "claude spend by department last month"
 python -m usage_agent --one-pager -o reports/weekly.docx
 ```
 
 Every one-pager has the **same fixed layout** — an EisnerAmper black/gold masthead,
-a row of KPI tiles, three WoW tables (by provider, by model, and the top 10 users),
-key findings, recommended actions, and a generated-at timestamp — only the data
-changes. The agent returns a structured JSON payload and the renderer
-(`python-docx`) computes every WoW delta and lays it out identically each run.
+KPI tiles, WoW tables (provider, model, top-10 users), key findings, recommended
+actions, timestamp. The agent returns structured JSON; the renderer computes every
+WoW delta and lays it out identically each run (`usage_agent/reports/one_pager.py`).
 
 ---
 
 ## Tools
 
-| Tool | Purpose |
-|---|---|
-| `describe_model` | Lists the semantic model's tables, columns, and measures (via DAX `INFO.VIEW.*`). Called once up front. |
-| `run_dax_query` | **Primary.** Runs a DAX `EVALUATE` against the model; results match the dashboard's measures. |
-| `run_sql_query` | Read-only SQL (SELECT/WITH only) against the Fabric SQL endpoint, for raw drill-down. |
-| `post_to_teams` | Posts the answer/briefing to Teams as an Adaptive Card via a Workflows webhook. Used only when you explicitly ask to send/share to Teams; |
+| Tool | Kind | Purpose |
+|---|---|---|
+| `describe_model` | read | Lists the model's tables, columns, and measures (DAX `INFO.VIEW.*`). Called once up front. |
+| `weekly_spend_summary` | deterministic | Fixed DAX: last complete week vs prior week (spend, WoW, active users). |
+| `spend_breakdown` | deterministic | Fixed DAX: spend + active users by provider / model / product for a period. |
+| `department_spend` | deterministic | Fixed DAX: spend by department via `openai_anthropic_dim_user_dept`. |
+| `run_dax_query` | **primary** | The ONLY way to compute numbers. One DAX `EVALUATE` over the openai_anthropic model. |
+| `list_data_tables` | fixed read-only SQL | Schema of the openai_anthropic tables. |
+| `preview_table` | fixed read-only SQL | First N rows of one allowlisted openai_anthropic table (inspection only). |
+| `table_row_count` | fixed read-only SQL | Row count of one allowlisted openai_anthropic table. |
+| `post_to_teams` | action | Posts the answer/briefing to Teams as an Adaptive Card. Only when you explicitly ask. |
+
+There is **no** free-form SQL tool — the agent cannot compose SQL. See
+`usage_agent/tools/README.md` for the full mechanics and safety guards.
 
 ---
 
-## Microsoft Teams delivery
+## Security model (short version)
 
-Ask the agent your question, followed by the phrase *"…and post it to Teams"*. The program renders the answer as an Adaptive
-Card and sends it to a channel via a **Power Automate / Teams Workflows** webhook
-(it arrives as the Flow bot). Setup:
+- **DAX is read-only by construction** and confined to the openai_anthropic model.
+- **SQL is fixed + allowlisted**: the agent only names a table (validated against
+  the `openai_anthropic_*` allowlist) and a row count; it never supplies SQL text.
+  `usage_agent/tools/validation.py` re-checks every statement at execution time as
+  a defense-in-depth safety net (single read-only `SELECT`/`WITH`; no writes, DDL,
+  batches, or `OPENROWSET`-style escapes).
+- **Least privilege is the primary control** — grant the Fabric SQL principal
+  SELECT-only on the `openai_anthropic_*` tables.
+- **RLS / data sensitivity** — cost data includes per-user detail; if you expose
+  the agent broadly, enforce Row-Level Security on the model and confirm the query
+  identity respects it. See the final section of `AGENT_PLAN.md`.
 
-1. In Teams/Power Automate, create a flow with the **"Send a webhook alert to a channel."**
-2. Copy the link that is generated and put it in the .env
+---
 
-No Azure AD permission is needed 
+## Microsoft Teams
+
+**Outbound (any surface):** end your question with *"…and post it to Teams"*. The
+answer is rendered as an Adaptive Card and sent to a channel via a **Power Automate /
+Teams Workflows** webhook (arrives as the Flow bot). Set `TEAMS_WEBHOOK_URL`; no
+Azure AD permission needed.
+
+**Interactive bot:** `bot/` hosts an aiohttp service exposing `/api/messages` for the
+Bot Framework. See `bot/README.md`.
+
 ---
 
 ## Testing
 
 ```powershell
-python -m pytest            # run from the repo root
+python -m pytest            # from the repo root
 ```
 
-Tests are fully offline
+Tests are fully offline (Claude and Power BI are stubbed; the SQL tools' query
+construction and safety net are unit-tested without a database).
 
 ---
 
 ## Limitations
 
-- **Time-scoped breakdowns:** the raw `usage` fact table's `usage_date` is text and
-  isn't a date-related dimension, so hand-written date filters on the raw table may
-  not scope correctly. Prefer the model's period measures / the reporting table for
-  "last week"/"WoW" questions. (Prompt guidance steers Claude this way; verify
-  detail tables sum to the period total.)
-- **`executeQueries` limits:** one DAX query per call, ~100k-row cap. Big pulls
-  should aggregate or use the SQL tool.
-- **SQL vs measures:** numbers from `run_sql_query` are raw and may differ slightly
-  from a dashboard measure's definition; the DAX path is authoritative for anything
-  the dashboard shows.
-- **Model metadata:** `describe_model` uses `INFO.VIEW.*` (not `INFO.*`, which some
-  engines reject) and degrades gracefully if unavailable.
+- **`executeQueries` limits:** one DAX query per call, ~100k-row cap. Large pulls
+  should aggregate.
+- **Inspection ≠ reporting:** numbers from `preview_table`/`table_row_count` are raw
+  and may differ from a measure's definition — the DAX path is authoritative.
+- **Monthly periods** in `spend_breakdown` / `department_spend` derive the calendar
+  month from the host clock; if the data lags the calendar, monthly windows can be
+  partial. Weekly periods anchor to the model's own `is_complete_week` and are safe.
+- **Model metadata:** `describe_model` uses `INFO.VIEW.*` and degrades gracefully if
+  a metadata query is unavailable.
 
 ---
 
-## Next Steps
+## Next steps
 
-- **Weekly comparative digest** (scheduled Monday briefing with WoW deltas).
 - **Cost-governance tools** (model right-sizing, cache efficiency, idle seats,
   cross-provider overlap, budget/forecast alerts).
-- **Interactive Teams bot** (inbound Q&A, reusing this agent as the brain).
+- **Scheduled Monday digest** posted to Teams.
+- **RLS / identity-aware access** before broad rollout.
