@@ -68,11 +68,19 @@ class UsageAgent:
         self._posted_to_teams: bool = False
 
     # -- public API --------------------------------------------------------
-    def run(self, user_message: str) -> AgentResult:
-        """Answer *user_message*, calling tools as needed."""
+    def run(self, user_message: str, history: list[dict[str, Any]] | None = None) -> AgentResult:
+        """Answer *user_message*, calling tools as needed.
+
+        *history* is an optional list of prior plain-text turns
+        (``[{"role": "user"|"assistant", "content": str}, ...]``) prepended for
+        multi-turn context, so follow-ups like "break that down" resolve against
+        earlier turns. It must alternate user/assistant and start with a user turn.
+        """
         self._current_question = user_message
         self._posted_to_teams = False
-        messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
+        messages: list[dict[str, Any]] = list(history or []) + [
+            {"role": "user", "content": user_message}
+        ]
 
         for step in range(self._max_steps):
             # On the final allowed step, force a text answer (tool_choice=none) so a

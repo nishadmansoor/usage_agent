@@ -34,8 +34,7 @@
           "commands": [
             { "title": "Weekly spend", "description": "How much did we spend last week, with the week-over-week change?" },
             { "title": "By provider", "description": "Spend by provider last week" },
-            { "title": "By model", "description": "Spend by model last week" },
-            { "title": "By department", "description": "Which department spent the most last month?" }
+            { "title": "Top spenders", "description": "Who were the top 10 spenders last week?" }
           ]
         }
       ]
