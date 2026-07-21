@@ -159,6 +159,16 @@ def test_help_shows_three_starter_chips(monkeypatch):
     assert all(a.type == "imBack" for a in actions)
 
 
+def test_help_command_short_circuits(monkeypatch):
+    _fake_agent(monkeypatch)  # must NOT be called
+    ctx = FakeTurnContext("help")
+    asyncio.run(UsageBot().on_message_activity(ctx))
+    texts = [t for t in ctx._texts() if t]
+    # Single reply = help text (no "On it…" ack + answer => agent wasn't invoked).
+    assert len(texts) == 1 and "Ask me about AI usage" in texts[0]
+    assert ctx.sent[-1].suggested_actions.actions  # starter chips attached
+
+
 def test_answer_has_no_chips(monkeypatch):
     _fake_agent(monkeypatch)
     ctx = FakeTurnContext("spend last week")

@@ -34,6 +34,7 @@ BOT_HISTORY_TTL_SECONDS = int(os.environ.get("BOT_HISTORY_TTL_SECONDS", "1800"))
 _MAX_ANSWER_CHARS = 4000  # truncate a long answer before storing it as context
 
 _RESET_WORDS = {"reset", "clear", "start over", "new chat", "forget", "forget it"}
+_HELP_WORDS = {"help", "hi", "hello", "hey", "?", "menu", "commands", "what can you do", "what can you do?"}
 
 _WELCOME = (
     "Hi! I can answer questions about EA's AI usage & cost (Claude + Codex). "
@@ -72,6 +73,12 @@ class UsageBot(ActivityHandler):
         # Strip the bot @mention (in a channel); in 1:1 chat this is a no-op.
         text = (TurnContext.remove_recipient_mention(turn_context.activity) or "").strip()
         if not text:
+            await turn_context.send_activity(_with_starters(_HELP))
+            return
+
+        # "help" / greetings -> show what I can do + starter chips, instead of
+        # round-tripping the literal word to the model.
+        if text.lower() in _HELP_WORDS:
             await turn_context.send_activity(_with_starters(_HELP))
             return
 
