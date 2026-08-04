@@ -167,6 +167,8 @@ TOOL_SPECS: list[dict] = [
     ),
     _spec(
         "web_search",
+        "Use ONLY when the user EXPLICITLY asks to compare against peers / the industry — "
+        "never for internal usage/cost questions. "
         "Search the public web for CURRENT external information — use for industry/"
         "peer benchmarks, vendor list pricing, and analyst figures (Gartner, IDC, "
         "Forrester, McKinsey, a16z, Bessemer, FinOps Foundation, etc.). Returns real "
