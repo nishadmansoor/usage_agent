@@ -4,9 +4,9 @@ A conversational Claude agent that answers natural-language questions about your
 organization's **AI usage & cost** (Anthropic Claude + OpenAI Codex) held in
 Microsoft Fabric.
 
-It works **only** with the `openai_anthropic_*` dataset and computes every number
-with **DAX against your Power BI semantic model** — so its figures reconcile with
-the dashboard's own measures. It **never writes SQL**: for raw-row inspection it
+It works **only** with the gold **"AI Usage"** model (tables `ai_*`) and computes every
+number with **DAX against your Power BI semantic model** — so its figures reconcile
+with the dashboard's own measures. It **never writes SQL**: for raw-row inspection it
 uses a small set of fixed, read-only, allowlisted SQL tools. Authentication is
 **passwordless** (your Azure identity via `az login` / managed identity); no API
 keys to manage.
@@ -39,8 +39,8 @@ You ─▶ usage-agent "which department spends the most on Claude?"
 - **Inspect raw rows** — only via `list_data_tables` / `preview_table` /
   `table_row_count`, which run **fixed** read-only SELECTs against an **allowlist**
   of `openai_anthropic_*` tables. The agent cannot compose SQL.
-- **Scope** — the model contains only `openai_anthropic_*` tables (plus a hidden
-  `_Measures` table that holds measures). The agent never touches anything else.
+- **Scope** — the Power BI model is the gold **"AI Usage"** model (`ai_*` tables plus a
+  hidden `_Measures` table). The agent never touches anything else.
 
 ---
 
@@ -166,12 +166,29 @@ portal URL: `app.powerbi.com/groups/<WORKSPACE_ID>/datasets/<DATASET_ID>/...`.
 
 ## Usage
 
-Run from the repo root (so `.env` loads):
+### Web app (primary — how to run it)
+
+Run from the repo root, **on VPN** (needed to reach Foundry):
 
 ```powershell
-python -m usage_agent "which department spends the most on Claude?"
-python -m usage_agent "codex vs claude token usage over the last 30 days"
-python -m usage_agent            # no question -> default weekly briefing
+python -m bot.web_chat
+```
+
+Then open **http://localhost:3978/** and ask questions in the chat.
+
+Local runs authenticate as your own `az login` identity, so make sure you're signed
+in (`az login`) and leave the `AZURE_*` service-principal variables in `.env` blank
+(those are only for the deployed version).
+
+### CLI — for the Word one-pager & scripting
+
+Chatting with the agent is done in the web app; the CLI is kept for generating the
+branded **Word (`.docx`) one-pager** and for scripted/scheduled runs.
+
+```powershell
+python -m usage_agent --one-pager                      # weekly briefing -> branded .docx
+python -m usage_agent --one-pager -o reports/weekly.docx
+python -m usage_agent "which department spends the most on Claude?"   # one-shot answer
 ```
 
 **Options**
@@ -202,8 +219,8 @@ WoW delta and lays it out identically each run (`usage_agent/reports/one_pager.p
 | `describe_model` | read | Lists the model's tables, columns, and measures (DAX `INFO.VIEW.*`). Called once up front. |
 | `weekly_spend_summary` | deterministic | Fixed DAX: last complete week vs prior week (spend, WoW, active users). |
 | `spend_breakdown` | deterministic | Fixed DAX: spend + active users by provider / model / product for a period. |
-| `department_spend` | deterministic | Fixed DAX: spend by department via `openai_anthropic_dim_user_dept`. |
-| `run_dax_query` | **primary** | The ONLY way to compute numbers. One DAX `EVALUATE` over the openai_anthropic model. |
+| `department_spend` | deterministic | Fixed DAX: spend by department via `ai_dim_user_dept`. |
+| `run_dax_query` | **primary** | The ONLY way to compute numbers. One DAX `EVALUATE` over the AI Usage model. |
 | `list_data_tables` | fixed read-only SQL | Schema of the openai_anthropic tables. |
 | `preview_table` | fixed read-only SQL | First N rows of one allowlisted openai_anthropic table (inspection only). |
 | `table_row_count` | fixed read-only SQL | Row count of one allowlisted openai_anthropic table. |
@@ -216,7 +233,7 @@ There is **no** free-form SQL tool — the agent cannot compose SQL. See
 
 ## Security model (short version)
 
-- **DAX is read-only by construction** and confined to the openai_anthropic model.
+- **DAX is read-only by construction** and confined to the AI Usage model.
 - **SQL is fixed + allowlisted**: the agent only names a table (validated against
   the `openai_anthropic_*` allowlist) and a row count; it never supplies SQL text.
   `usage_agent/tools/validation.py` re-checks every statement at execution time as
@@ -252,7 +269,6 @@ Tests are fully offline (Claude and Power BI are stubbed; the SQL tools' query
 construction and safety net are unit-tested without a database).
 
 ---
-
 ## Limitations
 
 - **`executeQueries` limits:** one DAX query per call, ~100k-row cap. Large pulls
