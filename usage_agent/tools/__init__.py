@@ -26,6 +26,7 @@ from .sql_tools import (
     table_row_count,
 )
 from .usage_metrics import department_spend, spend_breakdown, weekly_spend_summary
+from .web_tools import web_search
 
 # name -> callable. The agent dispatches tool calls through this map.
 TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
@@ -41,6 +42,8 @@ TOOL_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "preview_table": preview_table,
     "table_row_count": table_row_count,
     "post_to_teams": post_to_teams,
+    # Public-web search for external/industry benchmarks (real, citable sources).
+    "web_search": web_search,
 }
 
 
@@ -161,6 +164,20 @@ TOOL_SPECS: list[dict] = [
             "question": {"type": "string", "description": "The original user question, shown above the answer in the card."},
         },
         ["text"],
+    ),
+    _spec(
+        "web_search",
+        "Search the public web for CURRENT external information — use for industry/"
+        "peer benchmarks, vendor list pricing, and analyst figures (Gartner, IDC, "
+        "Forrester, McKinsey, a16z, Bessemer, FinOps Foundation, etc.). Returns real "
+        "results with titles, URLs, and dates to CITE. Use this instead of relying on "
+        "memory for any external number; never fabricate a source or URL. Internal "
+        "usage/cost figures still come from the Power BI/DAX tools, not web_search.",
+        {
+            "query": {"type": "string", "description": "The web search query."},
+            "max_results": {"type": "integer", "description": "Results to return (1-10, default 5).", "default": 5},
+        },
+        ["query"],
     ),
 ]
 

@@ -29,12 +29,12 @@ from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 
-_DATE = "'openai_anthropic_dim_date'"
+_DATE = "'ai_dim_date'"
 
 _DIMENSION_COLUMN = {
-    "provider": "'openai_anthropic_dim_provider'[provider]",
-    "model": "'openai_anthropic_usage_report'[model]",
-    "product": "'openai_anthropic_usage_report'[product_group]",
+    "provider": "'ai_dim_provider'[provider]",
+    "model": "'ai_usage_report'[model]",
+    "product": "'ai_usage_report'[product_group]",
 }
 
 _PERIODS = ("last_week", "prior_week", "last_month", "this_month", "all_time")
@@ -170,8 +170,8 @@ ORDER BY [Spend] DESC
     return _df(pbi.execute_dax(dax))
 
 
-_DEPT = "'openai_anthropic_dim_user_dept'[department]"
-_PROVIDER = "'openai_anthropic_dim_provider'[provider]"
+_DEPT = "'ai_dim_user_dept'[department]"
+_PROVIDER = "'ai_dim_provider'[provider]"
 
 
 def department_spend(
@@ -184,7 +184,7 @@ def department_spend(
     """Spend + active users by department for *period* — entirely within the
     openai_anthropic semantic model.
 
-    Department lives in 'openai_anthropic_dim_user_dept' (related to the fact by
+    Department lives in 'ai_dim_user_dept' (related to the fact by
     user_key), so this is a DAX aggregate over [Total Spend] / [Active Users] and
     reconciles with the dashboard. No SQL, no external directory.
     """

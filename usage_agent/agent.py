@@ -127,6 +127,63 @@ class UsageAgent:
             self._posted_to_teams,
         )
 
+    def run_stream(self, user_message: str, history: list[dict[str, Any]] | None = None):
+        """Streaming variant of :meth:`run` — a generator of event dicts.
+
+        Yields, in order as they happen:
+          ``{"type": "tool", "name": <tool name>}``  — a tool is being called
+          ``{"type": "text", "text": <chunk>}``      — a chunk of answer text
+
+        Reuses the exact same tools, prompt, and dispatch as ``run``; only the
+        emission differs (token deltas + tool-progress instead of one final blob).
+        Text chunks from an intermediate (pre-tool) step are still emitted; the
+        caller/UI treats a subsequent ``tool`` event as "that was preamble" and
+        keeps only the text after the last tool as the final answer.
+        """
+        self._current_question = user_message
+        self._posted_to_teams = False
+        messages: list[dict[str, Any]] = list(history or []) + [
+            {"role": "user", "content": user_message}
+        ]
+
+        for step in range(self._max_steps):
+            create_kwargs: dict[str, Any] = dict(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=self._system_prompt,
+                tools=self._tools,
+                messages=messages,
+            )
+            if step == self._max_steps - 1:
+                create_kwargs["tool_choice"] = {"type": "none"}
+
+            with self._client.messages.stream(**create_kwargs) as stream:
+                for delta in stream.text_stream:
+                    if delta:
+                        yield {"type": "text", "text": delta}
+                message = stream.get_final_message()
+
+            if message.stop_reason != "tool_use":
+                logger.info("Agent (stream) finished in %d step(s).", step + 1)
+                return
+
+            messages.append({"role": "assistant", "content": message.content})
+            tool_results = []
+            for block in message.content:
+                if block.type == "tool_use":
+                    yield {"type": "tool", "name": block.name}
+                    result_text = self._dispatch(block.name, block.input)
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result_text,
+                        }
+                    )
+            messages.append({"role": "user", "content": tool_results})
+
+        yield {"type": "text", "text": "\n\n(Stopped: reached the maximum number of steps.)"}
+
     # -- internals ---------------------------------------------------------
     @staticmethod
     def _text_of(response) -> str:
