@@ -3,12 +3,17 @@
 The agent may **NOT** write SQL. Every query here is a FIXED, parameterised
 statement scoped to an allowlist of ``openai_anthropic_*`` tables — the agent only
 chooses a table (from that allowlist) and a row count, never the SQL text. Nothing
-outside the openai_anthropic tables is reachable (no Ivanti directory, no ad-hoc
-tables, no ``INFORMATION_SCHEMA`` fishing beyond the openai_anthropic prefix).
+outside the allowlist is reachable (no ad-hoc tables, no ``INFORMATION_SCHEMA``
+fishing beyond the allowlisted prefixes).
 
 The PRIMARY analytical path is DAX over the semantic model's measures (see
-``dax_tools`` / ``usage_metrics``). These tools exist only so the agent can INSPECT
-the raw rows/columns the model doesn't surface as measures.
+``usage_metrics``). The tools here exist only so the agent can INSPECT the raw
+rows/columns the model doesn't surface as measures — NEVER to report a figure.
+Every reported number, without exception, comes from ``usage_metrics``.
+
+Note these read the BRONZE lakehouse (``FABRIC_SQL_DATABASE``), a different layer
+from the gold semantic model — and for ``*_usage_report`` / ``*_dim_user_dept`` /
+``*_forecast`` a stale pre-split copy. That is the other reason never to quote them.
 
 Two guards apply, belt-and-braces: the table **allowlist** (``_resolve``) keeps
 queries inside the ``openai_anthropic_*`` dataset, and ``validation.ensure_read_only``
