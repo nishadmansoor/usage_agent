@@ -1,4 +1,4 @@
-"""SQL safety net for the predefined, read-only data-review tools.
+"""SQL and DAX safety nets for the read-only data tools.
 
 The queries in ``sql_tools`` are already FIXED and built only from an allowlist of
 ``openai_anthropic_*`` tables — the agent never supplies SQL text. This module is
@@ -86,6 +86,50 @@ def ensure_read_only(sql: str) -> None:
             "Rejected SQL: only a single read-only SELECT/WITH statement is "
             "permitted (no writes, DDL, stored procedures, batches, or external "
             "data-source functions such as OPENROWSET)."
+        )
+
+
+# --- DAX ------------------------------------------------------------------
+# DAX has no DML, so the risk here is not a write — it is a MALFORMED or injected
+# query. ``model_query`` composes every statement from metadata-validated
+# identifiers, so this is the belt to that braces: it confirms what actually reaches
+# the engine is a single read-only EVALUATE and nothing has been appended to it.
+_DAX_FORBIDDEN = re.compile(
+    r"\b("
+    # table/row mutation functions
+    r"ALTER|CREATE|DROP|INSERT|UPDATE|DELETE|MERGE|"
+    # dataset/model management + external evaluation
+    r"REFRESH|BACKUP|RESTORE|ATTACH|DETACH|EXECUTE|CALCULATIONGROUP"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_read_only_dax(dax: str) -> bool:
+    """True if *dax* is a single read-only DAX query.
+
+    Requires exactly one ``EVALUATE`` (optionally preceded by ``DEFINE``), rejects a
+    trailing statement appended after the query, and rejects the mutation/management
+    keywords above.
+    """
+    text = (dax or "").strip()
+    if not text:
+        return False
+    head = text.lstrip("(").lstrip().upper()
+    if not head.startswith(("DEFINE", "EVALUATE")):
+        return False
+    # Exactly one result-returning statement.
+    if len(re.findall(r"\bEVALUATE\b", text, re.IGNORECASE)) != 1:
+        return False
+    return _DAX_FORBIDDEN.search(text) is None
+
+
+def ensure_read_only_dax(dax: str) -> None:
+    """Raise ``ValueError`` unless *dax* is a single read-only DAX query."""
+    if not is_read_only_dax(dax):
+        raise ValueError(
+            "Rejected DAX: only a single read-only EVALUATE (optionally preceded by "
+            "DEFINE) is permitted, with no model-management or mutation functions."
         )
 
 

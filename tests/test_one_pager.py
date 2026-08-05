@@ -57,7 +57,11 @@ def test_default_prompt_is_previous_week_wow():
     assert "PREVIOUS COMPLETE WEEK" in p
     assert "PRIOR WEEK" in p
     assert "is_complete_week" in p
-    assert "[Spend LW]" in p            # explicitly avoids the broken measures
+    # The broken measures are now blocked at the tool layer, so the prompt drives
+    # the deterministic tools rather than warning about DAX it can no longer write.
+    assert "weekly_spend_summary" in p
+    assert "spend_breakdown" in p and "top_users" in p
+    assert "do not calculate" in p.lower()
 
 
 def test_prompt_requires_json_shape():
